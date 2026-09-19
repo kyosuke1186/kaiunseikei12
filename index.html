@@ -301,18 +301,18 @@
       </thead>
       <tbody>
         <tr>
-          <td class="kana">あなた</td><td class="dim">空</td><td class="dim">空</td>
+          <td class="kana">名前／あなた</td><td class="dim">空</td><td class="dim">空</td>
           <td class="green">モバイルアドレス</td><td class="dim">空</td>
           <td class="dim">空</td><td class="dim">空</td><td class="kana">広告コード</td>
         </tr>
         <tr>
-          <td class="kana">あなた</td><td class="dim">空</td><td class="dim">空</td>
+          <td class="kana">名前／あなた</td><td class="dim">空</td><td class="dim">空</td>
           <td class="dim">空</td><td class="blue">PCアドレス</td>
           <td class="dim">空</td><td class="dim">空</td><td class="kana">広告コード</td>
         </tr>
       </tbody>
     </table>
-    <div class="note">出力ファイル名: 今日の日付.csv　文字コード: Shift_JIS（CSVコンマ区切り）</div>
+    <div class="note">入力: A列に名前・B/C列にメール、または従来のA列にメール。名前が空の場合は「あなた」で出力します。<br>出力ファイル名: 今日の日付.csv　文字コード: Shift_JIS（CSVコンマ区切り）</div>
   </div>
 </div>
 
@@ -405,10 +405,10 @@ function parseCSV(text) {
         if (inQ && line[i+1] === '"') { cur += '"'; i++; }
         else inQ = !inQ;
       } else if (c === ',' && !inQ) {
-        cells.push(cur.trim()); cur = "";
+        cells.push(cur); cur = "";
       } else { cur += c; }
     }
-    cells.push(cur.trim());
+    cells.push(cur);
     rows.push(cells);
   }
   return rows;
@@ -421,14 +421,20 @@ function processFile(name, text) {
   let mobileEmails = [], pcEmails = [], skipCount = 0;
 
   for (const row of rows) {
-    const cell = (row[0] || "").trim();
-    if (!EMAIL_RE.test(cell)) continue;
-    const email = cell.toLowerCase();
-    if (isMobile(email)) {
-      mobileEmails.push(email);
-    } else {
-      if (REJECT_LIST.has(email)) skipCount++;
-      else pcEmails.push(email);
+    const firstCell = (row[0] || "").trim();
+    const legacy = EMAIL_RE.test(firstCell);
+    const personName = legacy || !firstCell ? "あなた" : row[0];
+    const candidates = legacy ? [firstCell] : row.slice(1, 3);
+    for (const cell of candidates) {
+      const email = cell.trim().toLowerCase();
+      if (!EMAIL_RE.test(email)) continue;
+      const entry = { name: personName, email };
+      if (isMobile(email)) {
+        mobileEmails.push(entry);
+      } else {
+        if (REJECT_LIST.has(email)) skipCount++;
+        else pcEmails.push(entry);
+      }
     }
   }
 
@@ -439,10 +445,10 @@ function buildMergedCSV(results) {
   const rows = [];
   for (const r of results) {
     for (const mob of r.mobile) {
-      rows.push([q("あなた"),q(""),q(""),q(mob),q(""),q(""),q(""),q(r.adCode)].join(","));
+      rows.push([q(mob.name),q(""),q(""),q(mob.email),q(""),q(""),q(""),q(r.adCode)].join(","));
     }
     for (const pc of r.pc) {
-      rows.push([q("あなた"),q(""),q(""),q(""),q(pc),q(""),q(""),q(r.adCode)].join(","));
+      rows.push([q(pc.name),q(""),q(""),q(""),q(pc.email),q(""),q(""),q(r.adCode)].join(","));
     }
   }
   return rows.join("\r\n");
@@ -524,12 +530,11 @@ function downloadMerged() {
 async function readFileSmart(file) {
   const buffer = await file.arrayBuffer();
   const uint8 = new Uint8Array(buffer);
-  let text = "";
-  try { text = new TextDecoder("shift-jis").decode(uint8); } catch(e) {}
-  if (!text || text.indexOf("") !== -1) {
-    try { text = new TextDecoder("utf-8").decode(uint8); } catch(e) {}
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(uint8);
+  } catch (e) {
+    return new TextDecoder("shift-jis").decode(uint8);
   }
-  return text;
 }
 
 async function handleFiles(files) {
